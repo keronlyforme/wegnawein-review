@@ -1,76 +1,92 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import os
 from datetime import datetime
+password_input = st.text_input("Enter Team Password", type="password")
+if password_input != "vinprat":
+    st.warning("Please enter the correct password to access the Editorial Dashboard.")
+    st.stop() # This freezes the app until the password is right
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Standard v1.0 | Editorial Dashboard", layout="wide")
 
-# Define weights
+# Define weights for scoring
 MOVIE_WEIGHTS = {"Story_Screenplay": 0.25, "Characters_Acting": 0.20, "Directing": 0.15, "Visuals": 0.15, "Sound_Music": 0.10, "Editing_Pacing": 0.10, "Impact": 0.05}
 BOOK_WEIGHTS = {"Prose_Writing": 0.30, "Plot_Structure": 0.25, "Character_Depth": 0.20, "Pacing": 0.15, "Themes_Impact": 0.10}
 
-DATA_FILE = "editorial_data.csv"
+# --- GOOGLE SHEETS CONNECTION ---
+# This connects to the Sheet URL you will put in your Streamlit Secrets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-def save_data(new_entry):
-    df = pd.read_csv(DATA_FILE) if os.path.exists(DATA_FILE) else pd.DataFrame()
-    df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-    df.to_csv(DATA_FILE, index=False)
+def get_data():
+    try:
+        # ttl=0 ensures we always see the most recent submissions
+        return conn.read(ttl="0s")
+    except:
+        # If the sheet is empty or has issues, return an empty table with headers
+        return pd.DataFrame(columns=["Date", "Reviewer", "Type", "Title", "Final_Score"])
 
-# --- UI ---
+# --- UI INTERFACE ---
 st.title("⚖️ Editorial Review Standard v1.0")
 
-# THE RULES SECTION (New)
-with st.expander("📖 The Standard Rules (Read First)"):
-    st.write("""
-    1. The 5-Point Baseline: A score of 5 means 'Average/Fine'. Only go higher if it's special.
-    2. Context Matters: Rate a comedy based on how well it 'comedies', not compared to a drama.
-    3. The 10 Rule: A '10' in any category must be genre-defining.
-    """)
+with st.expander("📖 The Standard Rules"):
+    st.write("1. 5 is Average. 2. Context matters. 3. 10 is genre-defining.")
 
 tab1, tab2, tab3, tab4 = st.tabs(["✍️ Submit Review", "🤝 Group War Room", "📊 Analytics", "📜 Archive"])
 
 with tab1:
     c1, c2, c3 = st.columns([1, 1, 2])
-    reviewer = c1.selectbox("Reviewer", ["kerod", "gubeleye", "kaleab", "kalsis"])
+    reviewer = c1.selectbox("Reviewer", ["Alice", "Bob", "Charlie", "Dave"])
     m_type = c2.radio("Media Type", ["Movie", "Book"])
-    title = c3.text_input("Title (Exact name for group matching)")
+    title = c3.text_input("Title")
 
     st.divider()
-    scores = {}
     current_weights = MOVIE_WEIGHTS if m_type == "Movie" else BOOK_WEIGHTS
+    scores = {}
     
-    st.subheader(f"Category Scoring (1-10) for {m_type}")
     cols = st.columns(2)
     for i, cat in enumerate(current_weights.keys()):
         scores[cat] = cols[i % 2].slider(cat.replace("_", " "), 1, 10, 5, key=f"{m_type}_{cat}")
 
-    if st.button("Submit to Records"):
+    if st.button("Submit to Cloud Records"):
         if title:
             final_score = sum(scores[c] * current_weights[c] for c in current_weights)
-            entry = {"Date": datetime.now().strftime("%Y-%m-%d"), "Reviewer": reviewer, "Type": m_type, "Title": title.strip().title(), "Final_Score": round(final_score, 2)}
-            save_data(entry)
-            st.success(f"Saved! {title} Final Score: {round(final_score, 2)}")
+            
+            # Create the new data row
+            new_row = pd.DataFrame([{
+                "Date": datetime.now().strftime("%Y-%m-%d"),
+                "Reviewer": reviewer,
+                "Type": m_type,
+                "Title": title.strip().title(),
+                "Final_Score": round(final_score, 2)
+            }])
+            
+            # Update the Google Sheet
+            existing_data = get_data()
+            updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+            conn.update(data=updated_df)
+            
+            st.success(f"Saved to Google Sheets! {title} Score: {round(final_score, 2)}")
+            st.balloons()
         else:
-            st.error("Missing Title!")
+            st.error("Please enter a title before submitting!")
 
 with tab2:
     st.subheader("Comparison War Room")
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
+    df = get_data()
+    if not df.empty and 'Title' in df.columns:
         search = st.selectbox("Select Title to Compare", df['Title'].unique())
         battle_df = df[df['Title'] == search]
         st.dataframe(battle_df, use_container_width=True)
         st.metric("Group Average", round(battle_df['Final_Score'].mean(), 2))
-    else:
-        st.info("No data yet.")
 
 with tab3:
     st.subheader("Personal Rankings")
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
+    df = get_data()
+    if not df.empty and 'Title' in df.columns:
         st.bar_chart(df.set_index('Title')['Final_Score'])
 
 with tab4:
-    if os.path.exists(DATA_FILE):
-        st.dataframe(pd.read_csv(DATA_FILE), use_container_width=True)
+    st.subheader("Full History")
+    df = get_data()
+    st.dataframe(df, use_container_width=True)
