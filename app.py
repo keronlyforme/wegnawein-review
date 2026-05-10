@@ -36,7 +36,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["✍️ Submit Review", "🤝 Group War Room",
 
 with tab1:
     c1, c2, c3 = st.columns([1, 1, 2])
-    reviewer = c1.selectbox("Reviewer", ["Alice", "Bob", "Charlie", "Dave"])
+    reviewer = c1.selectbox("Reviewer", ["kerod", "gubleye", "kalsis", "kaleab"])
     m_type = c2.radio("Media Type", ["Movie", "Book"])
     title = c3.text_input("Title")
 
